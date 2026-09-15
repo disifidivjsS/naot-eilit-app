@@ -18,43 +18,37 @@ jobs:
           cp -r extracted/NaotEilitZmanim/* .
           rm -rf extracted
 
-      - name: Update Only NedarimPlusApi URL
+      - name: Fix Network Security and Manifest
         run: |
-          cat << 'EOF' > app/src/main/java/com/naoteilit/zmanim/data/NedarimPlusApi.kt
-          package com.naoteilit.zmanim.data
-
-          import okhttp3.OkHttpClient
-          import retrofit2.Retrofit
-          import retrofit2.converter.scalars.ScalarsConverterFactory
-          import retrofit2.http.GET
-          import retrofit2.http.Query
-          import java.util.concurrent.TimeUnit
-
-          interface NedarimPlusApiService {
-              @GET("nedarimplus/Zmanim/GetMinyanim.aspx")
-              suspend fun getMinyanim(
-                  @Query("lat") lat: String = "31.931201713080377",
-                  @Query("lng") lng: String = "35.04763733760363",
-                  @Query("radius") radius: String = "1"
-              ): String
-          }
-
-          object NedarimPlusApi {
-              private val okHttpClient = OkHttpClient.Builder()
-                  .connectTimeout(30, TimeUnit.SECONDS)
-                  .readTimeout(30, TimeUnit.SECONDS)
-                  .build()
-
-              val service: NedarimPlusApiService by lazy {
-                  Retrofit.Builder()
-                      .baseUrl("https://www.matara.pro/")
-                      .client(okHttpClient)
-                      .addConverterFactory(ScalarsConverterFactory.create())
-                      .build()
-                      .create(NedarimPlusApiService::class.java)
-              }
-          }
+          mkdir -p app/src/main/res/xml
+          cat << 'EOF' > app/src/main/res/xml/network_security_config.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <network-security-config>
+              <base-config cleartextTrafficPermitted="true">
+                  <trust-anchors>
+                      <certificates src="system" />
+                      <certificates src="user" />
+                  </trust-anchors>
+              </base-config>
+          </network-security-config>
           EOF
+
+          python3 -c "
+          import re
+          manifest_path = 'app/src/main/AndroidManifest.xml'
+          with open(manifest_path, 'r', encoding='utf-8') as f:
+              content = f.read()
+
+          permissions = '<uses-permission android:name=\"android.permission.INTERNET\" />\n<uses-permission android:name=\"android.permission.ACCESS_NETWORK_STATE\" />\n'
+          if 'android.permission.INTERNET' not in content:
+              content = re.sub(r'(<manifest[^>]*>)', r'\1\n' + permissions, content)
+
+          if 'networkSecurityConfig' not in content:
+              content = re.sub(r'(<application)', r'\1 android:networkSecurityConfig=\"@xml/network_security_config\" android:usesCleartextTraffic=\"true\"', content)
+
+          with open(manifest_path, 'w', encoding='utf-8') as f:
+              f.write(content)
+          "
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
