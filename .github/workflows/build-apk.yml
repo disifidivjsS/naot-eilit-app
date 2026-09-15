@@ -14,14 +14,15 @@ jobs:
 
       - name: Unzip project correctly
         run: |
-          rm -rf app
-          unzip -o NaotEilitZmanim-project.zip -d extracted
-          if [ -d "extracted/NaotEilitZmanim" ]; then
-            cp -r extracted/NaotEilitZmanim/* .
+          find . -maxdepth 1 ! -name '.' ! -name '..' ! -name '.git' ! -name '.github' ! -name '*.zip' -exec rm -rf {} +
+          unzip -o NaotEilitZmanim-project.zip -d temp_unzip
+          if [ -d "temp_unzip/app" ]; then
+            cp -r temp_unzip/* .
           else
-            cp -r extracted/* .
+            FOLDER_NAME=$(ls temp_unzip)
+            cp -r temp_unzip/$FOLDER_NAME/* .
           fi
-          rm -rf extracted
+          rm -rf temp_unzip
 
       - name: Add Network Security Permissions Only
         run: |
