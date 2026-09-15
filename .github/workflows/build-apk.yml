@@ -1,1 +1,50 @@
+name: Build APK
 
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Unzip project (if a zip was uploaded instead of raw files)
+        run: |
+          ZIPFILE=$(find . -maxdepth 1 -name "*.zip" | head -n 1)
+          if [ -z "$ZIPFILE" ]; then
+            echo "No zip found at repo root - assuming project files are already unzipped."
+          else
+            echo "Found $ZIPFILE, extracting..."
+            unzip -o "$ZIPFILE" -d _extracted
+            TOPDIR=$(find _extracted -mindepth 1 -maxdepth 1 -type d | head -n 1)
+            shopt -s dotglob
+            cp -r "$TOPDIR"/* .
+            rm -rf _extracted
+          fi
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Build debug APK
+        run: gradle assembleDebug
+
+      - name: Upload APK as downloadable artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
