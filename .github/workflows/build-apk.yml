@@ -12,10 +12,15 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Unzip project
+      - name: Unzip project correctly
         run: |
+          rm -rf app
           unzip -o NaotEilitZmanim-project.zip -d extracted
-          cp -r extracted/NaotEilitZmanim/* .
+          if [ -d "extracted/NaotEilitZmanim" ]; then
+            cp -r extracted/NaotEilitZmanim/* .
+          else
+            cp -r extracted/* .
+          fi
           rm -rf extracted
 
       - name: Add Network Security Permissions Only
