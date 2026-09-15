@@ -20,10 +20,8 @@ jobs:
 
       - name: Fix Network Security and Manifest Permissions
         run: |
-          # 1. יצירת תיקיית res/xml במידה ואינה קיימת
           mkdir -p app/src/main/res/xml
 
-          # 2. יצירת קובץ network_security_config.xml שמתיר תקשורת מול השרת
           cat << 'EOF' > app/src/main/res/xml/network_security_config.xml
           <?xml version="1.0" encoding="utf-8"?>
           <network-security-config>
@@ -33,26 +31,19 @@ jobs:
                       <certificates src="user" />
                   </trust-anchors>
               </base-config>
-              <domain-config cleartextTrafficPermitted="true">
-                  <domain includeSubdomains="true">matara.pro</domain>
-                  <domain includeSubdomains="true">www.matara.pro</domain>
-              </domain-config>
           </network-security-config>
           EOF
 
-          # 3. עדכון ה-AndroidManifest להוספת הרשאות אינטרנט ותצורת האבטחה
           python3 -c "
           import re
           manifest_path = 'app/src/main/AndroidManifest.xml'
           with open(manifest_path, 'r', encoding='utf-8') as f:
               content = f.read()
 
-          # הוספת הרשאות אינטרנט אם אינן קיימות
           permissions = '<uses-permission android:name=\"android.permission.INTERNET\" />\n<uses-permission android:name=\"android.permission.ACCESS_NETWORK_STATE\" />\n'
           if 'android.permission.INTERNET' not in content:
               content = re.sub(r'(<manifest[^>]*>)', r'\1\n' + permissions, content)
 
-          # הוספת הגדרות אבטחת רשת לתגית application
           if 'networkSecurityConfig' not in content:
               content = re.sub(r'(<application)', r'\1 android:networkSecurityConfig=\"@xml/network_security_config\" android:usesCleartextTraffic=\"true\"', content)
 
@@ -60,7 +51,67 @@ jobs:
               f.write(content)
           "
 
-      - name: Fix Theme.kt Completely
+      - name: Fix NedarimPlusApi URL and Endpoint
+        run: |
+          cat << 'EOF' > app/src/main/java/com/naoteilit/zmanim/data/NedarimPlusApi.kt
+          package com.naoteilit.zmanim.data
+
+          import okhttp3.OkHttpClient
+          import retrofit2.Retrofit
+          import retrofit2.converter.scalars.ScalarsConverterFactory
+          import retrofit2.http.GET
+          import retrofit2.http.Query
+          import java.security.SecureRandom
+          import java.security.cert.X509Certificate
+          import java.util.concurrent.TimeUnit
+          import javax.net.ssl.*
+
+          interface NedarimPlusApiService {
+              @GET("nedarimplus/Zmanim/GetMinyanim.aspx")
+              suspend fun getMinyanim(
+                  @Query("lat") lat: String = "31.931201713080377",
+                  @Query("lng") lng: String = "35.04763733760363",
+                  @Query("radius") radius: String = "1"
+              ): String
+          }
+
+          object NedarimPlusApi {
+              private val unsafeOkHttpClient: OkHttpClient
+                  get() {
+                      try {
+                          val trustAllCerts = arrayOf<TrustManager>(object : X509TrustManager {
+                              override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
+                              override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
+                              override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
+                          })
+
+                          val sslContext = SSLContext.getInstance("SSL")
+                          sslContext.init(null, trustAllCerts, SecureRandom())
+                          val sslSocketFactory = sslContext.socketFactory
+
+                          return OkHttpClient.Builder()
+                              .sslSocketFactory(sslSocketFactory, trustAllCerts[0] as X509TrustManager)
+                              .hostnameVerifier { _, _ -> true }
+                              .connectTimeout(30, TimeUnit.SECONDS)
+                              .readTimeout(30, TimeUnit.SECONDS)
+                              .build()
+                      } catch (e: Exception) {
+                          return OkHttpClient.Builder().build()
+                      }
+                  }
+
+              val service: NedarimPlusApiService by lazy {
+                  Retrofit.Builder()
+                      .baseUrl("https://www.matara.pro/")
+                      .client(unsafeOkHttpClient)
+                      .addConverterFactory(ScalarsConverterFactory.create())
+                      .build()
+                      .create(NedarimPlusApiService::class.java)
+              }
+          }
+          EOF
+
+      - name: Fix Theme.kt
         run: |
           cat << 'EOF' > app/src/main/java/com/naoteilit/zmanim/ui/theme/Theme.kt
           package com.naoteilit.zmanim.ui.theme
@@ -77,31 +128,20 @@ jobs:
           import androidx.compose.ui.graphics.Color
           import androidx.compose.ui.platform.LocalContext
 
-          private val PrimaryDark = Color(0xFFD4AF37)
-          private val SecondaryDark = Color(0xFF1B2A4A)
-          private val PrimaryLight = Color(0xFF1B2A4A)
-          private val SecondaryLight = Color(0xFFD4AF37)
-
           private val DarkColorScheme = darkColorScheme(
-              primary = PrimaryDark,
-              secondary = SecondaryDark,
+              primary = Color(0xFFD4AF37),
+              secondary = Color(0xFF1B2A4A),
               background = Color(0xFF121212),
               surface = Color(0xFF1E1E1E),
               onPrimary = Color.Black,
-              onSecondary = Color.White,
-              onBackground = Color.White,
-              onSurface = Color.White
+              onSecondary = Color.White
           )
 
           private val LightColorScheme = lightColorScheme(
-              primary = PrimaryLight,
-              secondary = SecondaryLight,
+              primary = Color(0xFF1B2A4A),
+              secondary = Color(0xFFD4AF37),
               background = Color(0xFFF9F9FB),
-              surface = Color(0xFFFFFFFF),
-              onPrimary = Color.White,
-              onSecondary = Color.Black,
-              onBackground = Color(0xFF1C1B1F),
-              onSurface = Color(0xFF1C1B1F)
+              surface = Color(0xFFFFFFFF)
           )
 
           @Composable
@@ -110,20 +150,8 @@ jobs:
               dynamicColor: Boolean = false,
               content: @Composable () -> Unit
           ) {
-              val colorScheme = when {
-                  dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-                      val context = LocalContext.current
-                      if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-                  }
-                  darkTheme -> DarkColorScheme
-                  else -> LightColorScheme
-              }
-
-              MaterialTheme(
-                  colorScheme = colorScheme,
-                  typography = Typography(),
-                  content = content
-              )
+              val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
+              MaterialTheme(colorScheme = colorScheme, typography = Typography(), content = content)
           }
           EOF
 
